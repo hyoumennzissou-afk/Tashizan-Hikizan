@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>さんすうゲーム</title>
+
+<style>
+/* 画面固定と背景 */
+html, body {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #f2f2f2;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, sans-serif;
+  text-align: center;
+  /* iPhone 13のノッチ（上部の凹み）対策 */
+  padding-top: env(safe-area-inset-top);
+  touch-action: manipulation;
+}
+
+h1 { font-size: 24px; margin: 10px 0; color: #333; }
+
+/* お皿の並び：iPhone 13の幅に合わせて最適化 */
+#plates {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px; /* お皿同士の隙間を狭く */
+  margin: 10px auto;
+  padding: 0 5px;
+}
+
+.plate-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* お皿：四角いデザイン */
+.plate {
+  width: 28vw; height: 28vw; max-width: 140px; max-height: 140px;
+  border-radius: 12px;
+  background: white; border: 3px solid #444;
+  display: flex; flex-wrap: wrap; justify-content: center; align-content: center; overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.count { font-size: 28px; font-weight: bold; margin-top: 5px; }
+
+/* 記号のサイズ */
+.operator { font-size: 32px; font-weight: 900; width: 30px; }
+.plus { color: #e53935; }
+.minus { color: #1e88e5; }
+
+/* 操作ボタン */
+.controls {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.controls button {
+  font-size: 45px;
+  width: 90px;
+  height: 90px;
+  border-radius: 20px;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+/* マイナスボタン（青） */
+.controls button:first-child {
+  background: #1e88e5;
+  box-shadow: 0 6px 0 #1565c0;
+}
+
+/* プラスボタン（赤） */
+.controls button:last-child {
+  background: #e53935;
+  box-shadow: 0 6px 0 #c62828;
+}
+
+.controls button:active {
+  transform: translateY(4px);
+  box-shadow: none;
+}
+
+#checkBtn {
+  margin-top: 25px;
+  font-size: 24px;
+  font-weight: bold;
+  padding: 12px 50px;
+  border-radius: 40px;
+  border: none;
+  background: #4caf50;
+  color: white;
+  box-shadow: 0 5px 0 #2e7d32;
+}
+
+#checkBtn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+/* 演出用 */
+#bigMessage {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 50px;
+  font-weight: bold;
+  color: white;
+  z-index: 200;
+}
+
+.show { display: flex !important; animation: pop 1.2s forwards; }
+.ok { background: rgba(76,175,80,0.9); }
+.ng { background: rgba(244,67,54,0.9); }
+
+@keyframes pop {
+  0% { opacity:0; transform:scale(0.5); }
+  20% { opacity:1; transform:scale(1.1); }
+  100% { opacity:0; transform:scale(1.2); }
+}
+
+.effect { position: fixed; inset: 0; pointer-events: none; }
+.float { position: absolute; bottom: -50px; animation: floatUp 1.6s forwards; }
+@keyframes floatUp {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-110vh); opacity: 0; }
+}
+</style>
+</head>
+<body>
+
+<h1>たしざん・ひきざん</h1>
+
+<div id="plates">
+  <div class="plate-wrap">
+    <div class="plate" id="aPlate"></div>
+    <div class="count" id="aCount">0</div>
+  </div>
+  <div id="opEl" class="operator"></div>
+  <div class="plate-wrap">
+    <div class="plate" id="bPlate"></div>
+    <div class="count" id="bCount">0</div>
+  </div>
+  <div class="operator">＝</div>
+  <div class="plate-wrap">
+    <div class="plate" id="cPlate"></div>
+    <div class="count" id="cCount">0</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button onclick="change(-1)">-</button>
+  <button onclick="change(1)">+</button>
+</div>
+
+<button id="checkBtn" onclick="check()">けってい</button>
+
+<div id="effect" class="effect"></div>
+<div id="bigMessage"></div>
+
+<script>
+/* 音の処理 */
+let audioCtx = null;
+function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function tone(freq, type="square", time=0.15) {
+  initAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type; o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(0.001, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.3, audioCtx.currentTime+0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+time);
+  o.start(); o.stop(audioCtx.currentTime+time);
+}
+
+/* ゲーム変数 */
+let valA, valB, operator, answer, currentCount = 0;
+let currentEmoji = "🍎";
+const emojiList = ["🍎","🍓","🍇","🐶","🐱","🦁","🐯","🚗","🚀","🚁","🦖","⚽","⭐","🍦","🍩","🍭"];
+
+/* 絵を描く */
+function drawEmojis(el, n) {
+  el.innerHTML = "";
+  for(let i=0; i<n; i++) {
+    const s = document.createElement("span");
+    s.textContent = currentEmoji;
+    s.style.fontSize = n > 12 ? "18px" : "26px";
+    el.appendChild(s);
+  }
+}
+
+/* 問題作成 */
+function newQuestion() {
+  currentEmoji = emojiList[Math.floor(Math.random() * emojiList.length)];
+  operator = Math.random() < 0.5 ? "+" : "-";
+  let a, b, res, valid = false;
+  
+  while(!valid) {
+    let p = Math.random();
+    if(p < 0.33){ a = rand(1,9); b = rand(1,9); }
+    else if(p < 0.66){ a = rand(10,19); b = rand(1,9); }
+    else { a = rand(1,9); b = rand(10,19); }
+    
+    res = (operator === "+") ? a + b : a - b;
+    if(res >= 0 && res <= 20) { valA = a; valB = b; answer = res; valid = true; }
+  }
+
+  drawEmojis(document.getElementById("aPlate"), valA);
+  drawEmojis(document.getElementById("bPlate"), valB);
+  document.getElementById("aCount").textContent = valA;
+  document.getElementById("bCount").textContent = valB;
+  document.getElementById("opEl").textContent = operator;
+  document.getElementById("opEl").className = "operator " + (operator === "+" ? "plus" : "minus");
+  currentCount = 0;
+  update();
+}
+
+function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function update() {
+  drawEmojis(document.getElementById("cPlate"), currentCount);
+  document.getElementById("cCount").textContent = currentCount;
+}
+
+function change(d) {
+  initAudio();
+  if((currentCount >= 20 && d > 0) || (currentCount <= 0 && d < 0)){
+    tone(120, "sawtooth", 0.2); return;
+  }
+  currentCount += d;
+  update();
+  d > 0 ? tone(660) : tone(330);
+}
+
+/* 判定処理（修正済み） */
+function check() {
+  const m = document.getElementById("bigMessage");
+  const effectLayer = document.getElementById("effect");
+  effectLayer.innerHTML = "";
+  
+  if (currentCount === answer) {
+    tone(880); tone(1100, "square", 0.3);
+    document.body.style.background = "#fff176"; /* 正解時のフラッシュ */
+    m.textContent = "せいかい！";
+    m.className = "show ok";
+    for(let i=0; i<30; i++) spawn(["🎉","⭐",currentEmoji][rand(0,2)]);
+  } else {
+    tone(220, "sawtooth", 0.3);
+    document.body.style.background = "#ff8a80"; /* 不正解時のフラッシュ */
+    m.textContent = "ざんねん…";
+    m.className = "show ng";
+    for(let i=0; i<15; i++) spawn("❌");
+  }
+
+  setTimeout(() => {
+    document.body.style.background = "#f2f2f2";
+    m.className = "";
+    newQuestion();
+  }, 1600);
+}
+
+function spawn(ch) {
+  const d = document.createElement("div");
+  d.className = "float";
+  d.textContent = ch;
+  d.style.left = Math.random() * 100 + "vw";
+  d.style.fontSize = rand(30, 70) + "px";
+  document.getElementById("effect").appendChild(d);
+  setTimeout(() => d.remove(), 2000);
+}
+
+newQuestion();
+</script>
+
+</body>
+</html>
